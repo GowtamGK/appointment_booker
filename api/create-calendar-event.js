@@ -65,6 +65,9 @@ module.exports = async function handler(req, res) {
         const endDateTime = new Date(startDateTime.getTime() + duration * 60 * 60 * 1000);
 
         // Create calendar event
+        // NOTE: Service accounts cannot invite attendees without Domain-Wide Delegation
+        // Since this is a personal Gmail account, we create the event without attendees
+        // The event will appear in the instructor's calendar (since it's shared with service account)
         const event = {
             summary: title,
             description: description || '',
@@ -75,19 +78,18 @@ module.exports = async function handler(req, res) {
             end: {
                 dateTime: endDateTime.toISOString(),
                 timeZone: VANCOUVER_TIMEZONE
-            },
-            attendees: [
-                { email: instructorCalendarEmail }
-            ]
+            }
+            // Removed attendees - service accounts can't invite without domain-wide delegation
+            // The event will still appear in the instructor's calendar since it's shared
         };
 
         // Insert event into the instructor's calendar
         // IMPORTANT: The calendar must be shared with the service account email
-        // Use 'primary' to access the shared calendar
+        // Since the calendar is shared, we can use 'primary' to access it
+        // Note: sendUpdates is removed since we can't invite attendees with service account
         const response = await calendar.events.insert({
             calendarId: 'primary',
-            resource: event,
-            sendUpdates: 'all' // Send email notifications to attendees
+            resource: event
         });
 
         return res.status(200).json({

@@ -31,9 +31,24 @@ const CALENDAR_CONFIG = {
     SCOPES: 'https://www.googleapis.com/auth/calendar.events'
 };
 
-// Initialize EmailJS (only if Public Key is configured)
-if (EMAILJS_CONFIG.PUBLIC_KEY !== 'YOUR_PUBLIC_KEY' && EMAILJS_CONFIG.PUBLIC_KEY) {
-    emailjs.init(EMAILJS_CONFIG.PUBLIC_KEY);
+// Initialize EmailJS v4 (only if Public Key is configured)
+function initializeEmailJS() {
+    if (EMAILJS_CONFIG.PUBLIC_KEY !== 'YOUR_PUBLIC_KEY' && EMAILJS_CONFIG.PUBLIC_KEY) {
+        if (typeof emailjs !== 'undefined') {
+            emailjs.init(EMAILJS_CONFIG.PUBLIC_KEY);
+            console.log('EmailJS initialized successfully');
+        } else {
+            console.warn('EmailJS SDK not loaded yet');
+        }
+    }
+}
+
+// Try to initialize immediately, or wait for script to load
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeEmailJS);
+} else {
+    // If DOM is already loaded, wait a bit for scripts to load
+    setTimeout(initializeEmailJS, 100);
 }
 
 // State
@@ -454,10 +469,14 @@ async function handleBookingSubmit(e) {
     }
 }
 
-// Send Email using EmailJS
+// Send Email using EmailJS v4
 async function sendEmail(bookingData) {
     if (EMAILJS_CONFIG.TEMPLATE_ID === 'YOUR_TEMPLATE_ID' || EMAILJS_CONFIG.PUBLIC_KEY === 'YOUR_PUBLIC_KEY') {
         throw new Error('EmailJS not fully configured. Please set up Template ID and Public Key.');
+    }
+
+    if (typeof emailjs === 'undefined') {
+        throw new Error('EmailJS SDK not loaded. Please check the script tag.');
     }
 
     const templateParams = {
@@ -475,6 +494,7 @@ async function sendEmail(bookingData) {
     };
 
     try {
+        // EmailJS v4 - publicKey is already initialized, but can also be passed in options
         const response = await emailjs.send(
             EMAILJS_CONFIG.SERVICE_ID,
             EMAILJS_CONFIG.TEMPLATE_ID,
@@ -486,11 +506,13 @@ async function sendEmail(bookingData) {
         console.error('EmailJS Error Details:', {
             status: error.status,
             text: error.text,
+            message: error.message,
             serviceId: EMAILJS_CONFIG.SERVICE_ID,
             templateId: EMAILJS_CONFIG.TEMPLATE_ID,
             params: templateParams
         });
-        throw new Error(`EmailJS Error (${error.status}): ${error.text || 'Unknown error'}`);
+        const errorMessage = error.text || error.message || 'Unknown error';
+        throw new Error(`EmailJS Error (${error.status || 'N/A'}): ${errorMessage}`);
     }
 }
 

@@ -348,6 +348,20 @@ h2 {
     margin-top: 0;
 }
 
+/* Success Modal Styles */
+.success-modal {
+    max-width: 500px;
+    text-align: center;
+    padding: 40px 30px;
+}
+
+.success-modal h2 {
+    color: #1a1a1a;
+    margin-bottom: 15px;
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
 /* Warning Banner */
 .warning-banner {
     background: #fafafa;

@@ -108,6 +108,10 @@ const cancelPasswordBtn = document.getElementById('cancelPassword');
 const passwordError = document.getElementById('passwordError');
 const backToHomeBtn = document.getElementById('backToHome');
 
+// Success Modal Elements
+const successModal = document.getElementById('successModal');
+const closeSuccessModal = document.getElementById('closeSuccessModal');
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
@@ -208,6 +212,22 @@ function setupEventListeners() {
 
     // Google Calendar Authorization
     authorizeBtn.addEventListener('click', handleAuthorizeClick);
+
+    // Success Modal Close
+    if (closeSuccessModal) {
+        closeSuccessModal.addEventListener('click', () => {
+            successModal.classList.add('hidden');
+        });
+    }
+
+    // Close success modal when clicking outside
+    if (successModal) {
+        successModal.addEventListener('click', (e) => {
+            if (e.target === successModal) {
+                successModal.classList.add('hidden');
+            }
+        });
+    }
 }
 
 // Update Price Display
@@ -512,8 +532,10 @@ async function handleBookingSubmit(e) {
             return;
         }
 
-        // Success
-        showStatus('Appointment booked successfully! A confirmation email has been sent to the instructor.', 'success');
+        // Success - Show celebration modal
+        if (successModal) {
+            successModal.classList.remove('hidden');
+        }
         bookingForm.reset();
         timeSlotGroup.style.display = 'none';
         updatePriceDisplay();
@@ -712,11 +734,11 @@ async function createCalendarEvent(eventData) {
         description: eventData.description,
         start: {
             dateTime: startDateTime.toISOString(),
-            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+            timeZone: VANCOUVER_TIMEZONE
         },
         end: {
             dateTime: endDateTime.toISOString(),
-            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+            timeZone: VANCOUVER_TIMEZONE
         },
         attendees: [
             { email: CONFIG.INSTRUCTOR_EMAIL }
@@ -747,13 +769,20 @@ async function createCalendarEvent(eventData) {
 }
 
 // Utility Functions
+// Vancouver, BC timezone: America/Vancouver (PST/PDT)
+const VANCOUVER_TIMEZONE = 'America/Vancouver';
+
 function formatDate(dateString) {
-    const date = new Date(dateString);
+    // Parse date string as local date (YYYY-MM-DD format)
+    // Avoid timezone issues by parsing manually - this creates a date in local timezone
+    const [year, month, day] = dateString.split('-').map(Number);
+    const date = new Date(year, month - 1, day); // month is 0-indexed, creates local date
+    // Format the date - no need for timeZone since we already parsed it as local
     return date.toLocaleDateString('en-US', { 
         weekday: 'long', 
         year: 'numeric', 
         month: 'long', 
-        day: 'numeric' 
+        day: 'numeric'
     });
 }
 

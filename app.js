@@ -73,6 +73,8 @@ waitForEmailJS();
 let availableSlots = JSON.parse(localStorage.getItem('availableSlots')) || [];
 let isAuthorized = false;
 let isInstructorAuthenticated = sessionStorage.getItem('instructorAuthenticated') === 'true';
+let tokenClient = null;
+let accessToken = null;
 
 // DOM Elements
 const toggleInstructorBtn = document.getElementById('toggleInstructor');
@@ -116,9 +118,9 @@ document.addEventListener('DOMContentLoaded', () => {
     slotDateInput.min = today;
     bookingDateInput.min = today;
     
-    // Wait a bit for Google API to load before checking auth
+    // Wait a bit for Google Identity Services to load before checking auth
     setTimeout(() => {
-        checkCalendarAuth();
+        initializeGoogleCalendar();
     }, 500);
 });
 
@@ -269,6 +271,8 @@ function handleInstructorDateChange() {
     if (!date) {
         timeSlotsContainer.style.display = 'none';
         addSlotsBtn.style.display = 'none';
+        // Clear the slots display when no date is selected
+        loadAvailableSlots();
         return;
     }
 
@@ -282,6 +286,7 @@ function handleInstructorDateChange() {
 
     // Generate time slots from 9 AM to 9 PM (1 hour each)
     timeSlotsGrid.innerHTML = '';
+    // Filter slots ONLY for the selected date
     const existingSlots = availableSlots.filter(slot => slot.date === date);
     
     for (let hour = 9; hour <= 21; hour++) {
@@ -301,6 +306,9 @@ function handleInstructorDateChange() {
 
     timeSlotsContainer.style.display = 'block';
     addSlotsBtn.style.display = 'block';
+    
+    // Update the slots list to show only slots for this date
+    loadAvailableSlots();
 }
 
 // Handle Add Slots - Create slots for selected times
@@ -319,16 +327,19 @@ function handleAddSlots() {
         return;
     }
 
-    // Remove existing slots for this date (that aren't booked)
-    availableSlots = availableSlots.filter(slot => !(slot.date === date && !slot.booked));
+    // Remove existing UNBOOKED slots for this SPECIFIC date only
+    availableSlots = availableSlots.filter(slot => {
+        // Keep the slot if it's not for this date, OR if it's booked, OR if it's for this date but booked
+        return !(slot.date === date && !slot.booked);
+    });
 
-    // Add new slots for selected times
-    selectedCheckboxes.forEach(checkbox => {
+    // Add new slots for selected times - ensure date is correctly set
+    selectedCheckboxes.forEach((checkbox, index) => {
         const time = checkbox.value;
         const slot = {
-            id: `${date}_${time}_${Date.now()}`,
-            date,
-            time,
+            id: `${date}_${time}_${Date.now()}_${index}`, // Unique ID with timestamp and index
+            date: date, // Explicitly set the date
+            time: time,
             duration: 1, // Always 1 hour
             booked: false
         };
@@ -336,10 +347,10 @@ function handleAddSlots() {
     });
 
     saveAvailableSlots();
-    loadAvailableSlots();
-    handleInstructorDateChange(); // Refresh the grid
+    // Refresh the grid and slots list
+    handleInstructorDateChange();
     
-    showInstructorStatus(`${selectedCheckboxes.length} time slot(s) added successfully!`, 'success');
+    showInstructorStatus(`${selectedCheckboxes.length} time slot(s) added successfully for ${formatDate(date)}!`, 'success');
 }
 
 // Show status in instructor panel
@@ -355,12 +366,25 @@ function showInstructorStatus(message, type) {
 function loadAvailableSlots() {
     availableSlotsDiv.innerHTML = '';
     
-    if (availableSlots.length === 0) {
-        availableSlotsDiv.innerHTML = '<p>No available slots. Add some using the form above.</p>';
+    // If we're in instructor panel and a date is selected, only show slots for that date
+    const selectedDate = slotDateInput ? slotDateInput.value : null;
+    let slotsToDisplay = availableSlots;
+    
+    if (selectedDate && instructorPanel && !instructorPanel.classList.contains('hidden')) {
+        // In instructor panel with a date selected - show only slots for that date
+        slotsToDisplay = availableSlots.filter(slot => slot.date === selectedDate);
+    }
+    
+    if (slotsToDisplay.length === 0) {
+        if (selectedDate && instructorPanel && !instructorPanel.classList.contains('hidden')) {
+            availableSlotsDiv.innerHTML = `<p>No slots for ${formatDate(selectedDate)}. Add slots using the form above.</p>`;
+        } else {
+            availableSlotsDiv.innerHTML = '<p>No available slots. Add some using the form above.</p>';
+        }
         return;
     }
 
-    const sortedSlots = [...availableSlots].sort((a, b) => {
+    const sortedSlots = [...slotsToDisplay].sort((a, b) => {
         const dateA = new Date(a.date + 'T' + a.time);
         const dateB = new Date(b.date + 'T' + b.time);
         return dateA - dateB;
@@ -554,8 +578,8 @@ async function sendEmail(bookingData) {
     }
 }
 
-// Google Calendar Functions
-function checkCalendarAuth() {
+// Google Calendar Functions - Using Google Identity Services (GIS)
+function initializeGoogleCalendar() {
     if (CALENDAR_CONFIG.CLIENT_ID === 'YOUR_CLIENT_ID' || !CALENDAR_CONFIG.CLIENT_ID) {
         if (calendarAuth) {
             calendarAuth.classList.remove('hidden');
@@ -563,37 +587,72 @@ function checkCalendarAuth() {
         return;
     }
 
-    if (typeof gapi === 'undefined') {
-        console.warn('Google API not loaded yet, will retry...');
-        // Retry after a delay
-        setTimeout(checkCalendarAuth, 1000);
+    // Check if Google Identity Services is loaded
+    if (typeof google === 'undefined' || !google.accounts) {
+        console.warn('Google Identity Services not loaded yet, will retry...');
+        setTimeout(initializeGoogleCalendar, 1000);
         return;
     }
 
-    try {
-        gapi.load('client:auth2', () => {
-            gapi.client.init({
-                apiKey: CALENDAR_CONFIG.API_KEY,
-                clientId: CALENDAR_CONFIG.CLIENT_ID,
-                discoveryDocs: CALENDAR_CONFIG.DISCOVERY_DOCS,
-                scope: CALENDAR_CONFIG.SCOPES
-            }).then(() => {
-                const authInstance = gapi.auth2.getAuthInstance();
-                isAuthorized = authInstance.isSignedIn.get();
-                
-                if (!isAuthorized && calendarAuth) {
-                    calendarAuth.classList.remove('hidden');
-                } else if (isAuthorized) {
-                    console.log('Google Calendar already authorized');
-                }
-            }).catch(error => {
-                console.error('Google Calendar initialization error:', error);
-                // Don't show error to user, calendar is optional
-            });
-        });
-    } catch (error) {
-        console.error('Error loading Google API:', error);
+    // Initialize the token client
+    tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CALENDAR_CONFIG.CLIENT_ID,
+        scope: CALENDAR_CONFIG.SCOPES,
+        callback: (tokenResponse) => {
+            if (tokenResponse.error) {
+                console.error('Token error:', tokenResponse.error);
+                showStatus('Authorization failed. Please try again.', 'error');
+                return;
+            }
+            accessToken = tokenResponse.access_token;
+            isAuthorized = true;
+            if (calendarAuth) {
+                calendarAuth.classList.add('hidden');
+            }
+            showStatus('Google Calendar authorized successfully!', 'success');
+            // Initialize gapi client for API calls
+            initializeGapiClient();
+        }
+    });
+
+    // Check if we have a stored token
+    const storedToken = sessionStorage.getItem('google_access_token');
+    if (storedToken) {
+        accessToken = storedToken;
+        isAuthorized = true;
+        if (calendarAuth) {
+            calendarAuth.classList.add('hidden');
+        }
+        initializeGapiClient();
+    } else if (calendarAuth) {
+        calendarAuth.classList.remove('hidden');
     }
+}
+
+function initializeGapiClient() {
+    if (typeof gapi === 'undefined') {
+        console.warn('gapi not loaded yet');
+        setTimeout(initializeGapiClient, 500);
+        return;
+    }
+
+    gapi.load('client', () => {
+        gapi.client.init({
+            apiKey: CALENDAR_CONFIG.API_KEY,
+            discoveryDocs: CALENDAR_CONFIG.DISCOVERY_DOCS
+        }).then(() => {
+            // Set the access token for API calls
+            gapi.client.setToken({ access_token: accessToken });
+            console.log('Google Calendar API client initialized');
+        }).catch(error => {
+            console.error('Error initializing gapi client:', error);
+        });
+    });
+}
+
+function checkCalendarAuth() {
+    // Alias for backward compatibility
+    initializeGoogleCalendar();
 }
 
 function handleAuthorizeClick() {
@@ -602,23 +661,13 @@ function handleAuthorizeClick() {
         return;
     }
 
-    if (typeof gapi === 'undefined' || !gapi.auth2) {
-        showStatus('Google API not loaded. Please refresh the page.', 'error');
+    if (!tokenClient) {
+        showStatus('Google Calendar not initialized. Please refresh the page.', 'error');
         return;
     }
 
-    gapi.auth2.getAuthInstance().signIn().then(() => {
-        isAuthorized = true;
-        calendarAuth.classList.add('hidden');
-        showStatus('Google Calendar authorized successfully!', 'success');
-    }).catch(error => {
-        console.error('Authorization error:', error);
-        if (error.error === 'popup_closed_by_user') {
-            showStatus('Authorization cancelled.', 'info');
-        } else {
-            showStatus('Failed to authorize Google Calendar. Please try again.', 'error');
-        }
-    });
+    // Request access token
+    tokenClient.requestAccessToken({ prompt: 'consent' });
 }
 
 async function createCalendarEvent(eventData) {

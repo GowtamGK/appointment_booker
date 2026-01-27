@@ -218,13 +218,31 @@ function setupEventListeners() {
     // Add Slots
     addSlotsBtn.addEventListener('click', handleAddSlots);
 
-    // Google Calendar Authorization
-    authorizeBtn.addEventListener('click', handleAuthorizeClick);
+    // Google Calendar Authorization (only if button exists - not needed with service account)
+    if (authorizeBtn) {
+        authorizeBtn.addEventListener('click', handleAuthorizeClick);
+    }
 
     // Success Modal Close
     if (closeSuccessModal) {
         closeSuccessModal.addEventListener('click', () => {
-            successModal.classList.add('hidden');
+            if (successModal) {
+                successModal.classList.add('hidden');
+            }
+            // Reset form and show booking panel
+            bookingForm.reset();
+            timeSlotGroup.style.display = 'none';
+            if (noSlotsMessage) {
+                noSlotsMessage.style.display = 'none';
+            }
+            updatePriceDisplay();
+            // Ensure booking panel is visible
+            if (bookingPanel) {
+                bookingPanel.classList.remove('hidden');
+            }
+            if (instructorPanel) {
+                instructorPanel.classList.add('hidden');
+            }
         });
     }
 
@@ -233,6 +251,19 @@ function setupEventListeners() {
         successModal.addEventListener('click', (e) => {
             if (e.target === successModal) {
                 successModal.classList.add('hidden');
+                // Reset form and show booking panel
+                bookingForm.reset();
+                timeSlotGroup.style.display = 'none';
+                if (noSlotsMessage) {
+                    noSlotsMessage.style.display = 'none';
+                }
+                updatePriceDisplay();
+                if (bookingPanel) {
+                    bookingPanel.classList.remove('hidden');
+                }
+                if (instructorPanel) {
+                    instructorPanel.classList.add('hidden');
+                }
             }
         });
     }
@@ -727,26 +758,52 @@ async function createCalendarEventViaAPI(eventData) {
         throw new Error('Calendar API endpoint not configured. Please set CALENDAR_CONFIG.API_ENDPOINT in app.js');
     }
 
-    const response = await fetch(CALENDAR_CONFIG.API_ENDPOINT, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            title: eventData.title,
-            start: eventData.start.toISOString(),
-            duration: eventData.duration,
-            description: eventData.description
-        })
-    });
+    try {
+        const response = await fetch(CALENDAR_CONFIG.API_ENDPOINT, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                title: eventData.title,
+                start: eventData.start.toISOString(),
+                duration: eventData.duration,
+                description: eventData.description
+            })
+        });
 
-    if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(errorData.error || `HTTP ${response.status}: Failed to create calendar event`);
+        if (!response.ok) {
+            // Get error details
+            let errorMessage = `HTTP ${response.status}: Failed to create calendar event`;
+            try {
+                const errorData = await response.json();
+                errorMessage = errorData.error || errorData.message || errorMessage;
+                console.error('Calendar API error details:', errorData);
+            } catch (e) {
+                const errorText = await response.text();
+                console.error('Calendar API error response:', errorText);
+                errorMessage = errorText || errorMessage;
+            }
+            
+            // Provide helpful error messages
+            if (response.status === 404) {
+                throw new Error('Calendar API endpoint not found (404). Please check: 1) Vercel function is deployed, 2) API_ENDPOINT URL is correct, 3) Function file is in /api/ folder');
+            } else if (response.status === 500) {
+                throw new Error('Calendar API server error (500). Check Vercel function logs and ensure environment variables are set: SERVICE_ACCOUNT_EMAIL, SERVICE_ACCOUNT_PRIVATE_KEY, INSTRUCTOR_CALENDAR_EMAIL');
+            }
+            
+            throw new Error(errorMessage);
+        }
+
+        const result = await response.json();
+        return result.eventId;
+    } catch (error) {
+        // Re-throw with more context if it's a network error
+        if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+            throw new Error('Network error: Could not reach calendar API. Check if Vercel function is deployed and API_ENDPOINT is correct.');
+        }
+        throw error;
     }
-
-    const result = await response.json();
-    return result.eventId;
 }
 
 // Legacy OAuth-based function (kept for reference, not used anymore)

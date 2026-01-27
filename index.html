@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Motorcycle Training - Book Your Session</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.emailjs.com/dist/email.min.js"></script>
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Motorcycle Training Sessions</h1>
+            <p class="subtitle">Professional Motorcycle Training & Certification</p>
+        </header>
+
+        <!-- Instructor Panel (Toggle) -->
+        <div class="instructor-toggle">
+            <button id="toggleInstructor" class="btn-secondary">Instructor Panel</button>
+        </div>
+
+        <!-- Password Modal -->
+        <div id="passwordModal" class="modal hidden">
+            <div class="modal-content">
+                <h2>Instructor Access</h2>
+                <p>This area is restricted to authorized instructors only.</p>
+                <div class="form-group">
+                    <label for="instructorPassword">Password:</label>
+                    <input type="password" id="instructorPassword" placeholder="Enter instructor password" autofocus>
+                </div>
+                <div id="passwordError" class="status-message"></div>
+                <div class="modal-buttons">
+                    <button id="submitPassword" class="btn-primary">Submit</button>
+                    <button id="cancelPassword" class="btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Instructor Panel -->
+        <div id="instructorPanel" class="panel hidden">
+            <div class="warning-banner">
+                <p><strong>Warning:</strong> This is the instructor panel. If you are not an authorized instructor, please return to the booking page.</p>
+                <button id="backToHome" class="btn-secondary">Back to Booking Page</button>
+            </div>
+            <h2>Instructor Panel - Manage Available Slots</h2>
+            <div class="form-group">
+                <label for="slotDate">Select Date:</label>
+                <input type="date" id="slotDate" required>
+            </div>
+            <div id="timeSlotsContainer" class="form-group" style="display: none;">
+                <label>Select Available Time Slots (9:00 AM - 9:00 PM):</label>
+                <div id="timeSlotsGrid" class="time-slots-grid"></div>
+            </div>
+            <button id="addSlots" class="btn-primary" style="display: none;">Save Available Slots</button>
+            <div id="instructorStatus" class="status-message"></div>
+            <div id="availableSlots" class="slots-list"></div>
+        </div>
+
+        <!-- Booking Form -->
+        <div id="bookingPanel" class="panel">
+            <h2>Book Your Training Session</h2>
+            
+            <div class="session-types">
+                <div class="session-card" data-type="training" data-price="60">
+                    <h3>Training Session</h3>
+                    <p class="price">$60 CAD/hour</p>
+                </div>
+                <div class="session-card" data-type="mst" data-price="75">
+                    <h3>MST</h3>
+                    <p class="price">$75 CAD/hour</p>
+                </div>
+                <div class="session-card" data-type="class6" data-price="100">
+                    <h3>Class 6</h3>
+                    <p class="price">$100 CAD/hour</p>
+                </div>
+            </div>
+
+            <form id="bookingForm">
+                <div class="form-group">
+                    <label for="sessionType">Session Type:</label>
+                    <select id="sessionType" required>
+                        <option value="">Select a session type</option>
+                        <option value="training">Training Session ($60 CAD/hr)</option>
+                        <option value="mst">MST ($75 CAD/hr)</option>
+                        <option value="class6">Class 6 ($100 CAD/hr)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="bookingDate">Select Date:</label>
+                    <input type="date" id="bookingDate" required>
+                </div>
+
+                <div class="form-group" id="timeSlotGroup" style="display: none;">
+                    <label for="timeSlot">Available Time Slots:</label>
+                    <select id="timeSlot" required>
+                        <option value="">Select a time slot</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="customerName">Your Name:</label>
+                    <input type="text" id="customerName" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="customerEmail">Your Email:</label>
+                    <input type="email" id="customerEmail" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="customerPhone">Your Phone:</label>
+                    <input type="tel" id="customerPhone" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="notes">Additional Notes (optional):</label>
+                    <textarea id="notes" rows="3"></textarea>
+                </div>
+
+                <div class="price-summary">
+                    <p><strong>Total: <span id="totalPrice">$0</span> CAD</strong></p>
+                </div>
+
+                <button type="submit" class="btn-primary" id="submitBtn">Book Appointment</button>
+            </form>
+
+            <div id="bookingStatus" class="status-message"></div>
+        </div>
+
+        <!-- Calendar Auth Button -->
+        <div id="calendarAuth" class="hidden">
+            <p>Please authorize Google Calendar access to create calendar events.</p>
+            <button id="authorizeBtn" class="btn-secondary">Authorize Google Calendar</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

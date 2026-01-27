@@ -12,6 +12,16 @@ const { google } = require('googleapis');
 const VANCOUVER_TIMEZONE = 'America/Vancouver';
 
 module.exports = async function handler(req, res) {
+    // Enable CORS
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    // Handle preflight requests
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+
     // Only allow POST requests
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
@@ -31,8 +41,14 @@ module.exports = async function handler(req, res) {
 
         if (!serviceAccountEmail || !serviceAccountPrivateKey) {
             console.error('Service account credentials not configured');
-            return res.status(500).json({ error: 'Server configuration error: Service account not set up' });
+            return res.status(500).json({ 
+                error: 'Server configuration error: Service account not set up',
+                details: 'Missing SERVICE_ACCOUNT_EMAIL or SERVICE_ACCOUNT_PRIVATE_KEY environment variables'
+            });
         }
+
+        console.log('Service account email:', serviceAccountEmail);
+        console.log('Instructor calendar email:', instructorCalendarEmail);
 
         // Create JWT client for service account
         const auth = new google.auth.JWT({
@@ -66,10 +82,12 @@ module.exports = async function handler(req, res) {
         };
 
         // Insert event into the instructor's calendar
-        // Use the instructor's email as the calendar ID
+        // IMPORTANT: The calendar must be shared with the service account email
+        // Use 'primary' to access the shared calendar
         const response = await calendar.events.insert({
-            calendarId: instructorCalendarEmail,
-            resource: event
+            calendarId: 'primary',
+            resource: event,
+            sendUpdates: 'all' // Send email notifications to attendees
         });
 
         return res.status(200).json({
@@ -80,9 +98,22 @@ module.exports = async function handler(req, res) {
 
     } catch (error) {
         console.error('Calendar event creation error:', error);
+        console.error('Error details:', {
+            message: error.message,
+            code: error.code,
+            response: error.response?.data
+        });
+        
+        // Provide more detailed error information
+        let errorMessage = error.message || 'Failed to create calendar event';
+        if (error.response?.data) {
+            errorMessage += `: ${JSON.stringify(error.response.data)}`;
+        }
+        
         return res.status(500).json({
             error: 'Failed to create calendar event',
-            message: error.message
+            message: errorMessage,
+            details: error.response?.data || null
         });
     }
 }

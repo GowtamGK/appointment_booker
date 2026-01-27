@@ -37,7 +37,8 @@ module.exports = async function handler(req, res) {
         // Get service account credentials from environment variables
         const serviceAccountEmail = process.env.SERVICE_ACCOUNT_EMAIL;
         const serviceAccountPrivateKey = process.env.SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n');
-        const instructorCalendarEmail = process.env.INSTRUCTOR_CALENDAR_EMAIL || 'Ayushsutariya1310@gmail.com';
+        // Normalize email to lowercase - Google Calendar IDs are case-insensitive but lowercase is standard
+        const instructorCalendarEmail = (process.env.INSTRUCTOR_CALENDAR_EMAIL || 'Ayushsutariya1310@gmail.com').toLowerCase();
 
         if (!serviceAccountEmail || !serviceAccountPrivateKey) {
             console.error('Service account credentials not configured');
@@ -54,7 +55,10 @@ module.exports = async function handler(req, res) {
         const auth = new google.auth.JWT({
             email: serviceAccountEmail,
             key: serviceAccountPrivateKey,
-            scopes: ['https://www.googleapis.com/auth/calendar.events']
+            scopes: [
+                'https://www.googleapis.com/auth/calendar.events',
+                'https://www.googleapis.com/auth/calendar.readonly' // Needed to list calendars
+            ]
         });
 
         // Initialize Calendar API
@@ -85,12 +89,35 @@ module.exports = async function handler(req, res) {
 
         // Insert event into the instructor's calendar
         // IMPORTANT: The calendar must be shared with the service account email
-        // Since the calendar is shared, we can use 'primary' to access it
+        // When a calendar is shared, we need to use the instructor's email as the calendar ID
         // Note: sendUpdates is removed since we can't invite attendees with service account
-        const response = await calendar.events.insert({
-            calendarId: 'primary',
-            resource: event
-        });
+        
+        // Try using the instructor's email as calendar ID first
+        let response;
+        try {
+            response = await calendar.events.insert({
+                calendarId: instructorCalendarEmail,
+                resource: event
+            });
+            console.log('Event created successfully in instructor calendar:', response.data.id);
+        } catch (emailError) {
+            // If email doesn't work, try to get the actual calendar ID from calendar list
+            console.log('Trying to find calendar by listing calendars...');
+            const calendarList = await calendar.calendarList.list();
+            const instructorCalendar = calendarList.data.items.find(
+                cal => cal.id === instructorCalendarEmail || cal.summary === instructorCalendarEmail
+            );
+            
+            if (instructorCalendar) {
+                console.log('Found instructor calendar:', instructorCalendar.id);
+                response = await calendar.events.insert({
+                    calendarId: instructorCalendar.id,
+                    resource: event
+                });
+            } else {
+                throw new Error(`Could not find calendar for ${instructorCalendarEmail}. Make sure the calendar is shared with the service account. Error: ${emailError.message}`);
+            }
+        }
 
         return res.status(200).json({
             success: true,

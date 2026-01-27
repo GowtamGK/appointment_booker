@@ -474,17 +474,35 @@ async function sendEmail(bookingData) {
         calendar_event_id: bookingData.calendarEventId || 'Not created'
     };
 
-    return emailjs.send(
-        EMAILJS_CONFIG.SERVICE_ID,
-        EMAILJS_CONFIG.TEMPLATE_ID,
-        templateParams
-    );
+    try {
+        const response = await emailjs.send(
+            EMAILJS_CONFIG.SERVICE_ID,
+            EMAILJS_CONFIG.TEMPLATE_ID,
+            templateParams
+        );
+        console.log('Email sent successfully:', response);
+        return response;
+    } catch (error) {
+        console.error('EmailJS Error Details:', {
+            status: error.status,
+            text: error.text,
+            serviceId: EMAILJS_CONFIG.SERVICE_ID,
+            templateId: EMAILJS_CONFIG.TEMPLATE_ID,
+            params: templateParams
+        });
+        throw new Error(`EmailJS Error (${error.status}): ${error.text || 'Unknown error'}`);
+    }
 }
 
 // Google Calendar Functions
 function checkCalendarAuth() {
-    if (CALENDAR_CONFIG.CLIENT_ID === 'YOUR_CLIENT_ID') {
+    if (CALENDAR_CONFIG.CLIENT_ID === 'YOUR_CLIENT_ID' || !CALENDAR_CONFIG.CLIENT_ID) {
         calendarAuth.classList.remove('hidden');
+        return;
+    }
+
+    if (typeof gapi === 'undefined') {
+        console.warn('Google API not loaded yet');
         return;
     }
 
@@ -501,13 +519,21 @@ function checkCalendarAuth() {
             if (!isAuthorized) {
                 calendarAuth.classList.remove('hidden');
             }
+        }).catch(error => {
+            console.error('Google Calendar initialization error:', error);
+            // Don't show error to user, calendar is optional
         });
     });
 }
 
 function handleAuthorizeClick() {
-    if (CALENDAR_CONFIG.CLIENT_ID === 'YOUR_CLIENT_ID') {
+    if (CALENDAR_CONFIG.CLIENT_ID === 'YOUR_CLIENT_ID' || !CALENDAR_CONFIG.CLIENT_ID) {
         showStatus('Google Calendar API not configured. Please set up OAuth credentials.', 'error');
+        return;
+    }
+
+    if (typeof gapi === 'undefined' || !gapi.auth2) {
+        showStatus('Google API not loaded. Please refresh the page.', 'error');
         return;
     }
 
@@ -517,7 +543,11 @@ function handleAuthorizeClick() {
         showStatus('Google Calendar authorized successfully!', 'success');
     }).catch(error => {
         console.error('Authorization error:', error);
-        showStatus('Failed to authorize Google Calendar.', 'error');
+        if (error.error === 'popup_closed_by_user') {
+            showStatus('Authorization cancelled.', 'info');
+        } else {
+            showStatus('Failed to authorize Google Calendar. Please try again.', 'error');
+        }
     });
 }
 

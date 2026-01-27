@@ -90,6 +90,7 @@ const totalPriceSpan = document.getElementById('totalPrice');
 const bookingStatus = document.getElementById('bookingStatus');
 const calendarAuth = document.getElementById('calendarAuth');
 const authorizeBtn = document.getElementById('authorizeBtn');
+const calendarAuthStatus = document.getElementById('calendarAuthStatus');
 
 // Instructor Panel Elements
 const addSlotsBtn = document.getElementById('addSlots');
@@ -581,9 +582,7 @@ async function sendEmail(bookingData) {
 // Google Calendar Functions - Using Google Identity Services (GIS)
 function initializeGoogleCalendar() {
     if (CALENDAR_CONFIG.CLIENT_ID === 'YOUR_CLIENT_ID' || !CALENDAR_CONFIG.CLIENT_ID) {
-        if (calendarAuth) {
-            calendarAuth.classList.remove('hidden');
-        }
+        updateCalendarAuthStatus('Google Calendar API not configured.', 'error');
         return;
     }
 
@@ -601,31 +600,35 @@ function initializeGoogleCalendar() {
         callback: (tokenResponse) => {
             if (tokenResponse.error) {
                 console.error('Token error:', tokenResponse.error);
-                showStatus('Authorization failed. Please try again.', 'error');
+                updateCalendarAuthStatus('Authorization failed. Please try again.', 'error');
                 return;
             }
             accessToken = tokenResponse.access_token;
             isAuthorized = true;
-            if (calendarAuth) {
-                calendarAuth.classList.add('hidden');
-            }
-            showStatus('Google Calendar authorized successfully!', 'success');
+            // Store token for future use (persists across browser sessions)
+            localStorage.setItem('google_access_token', accessToken);
+            updateCalendarAuthStatus('✓ Setup complete! All booking events will now automatically be created in Ayushsutariya1310@gmail.com calendar. No further action needed.', 'success');
             // Initialize gapi client for API calls
             initializeGapiClient();
         }
     });
 
-    // Check if we have a stored token
-    const storedToken = sessionStorage.getItem('google_access_token');
+    // Check if we have a stored token (persists across browser sessions)
+    const storedToken = localStorage.getItem('google_access_token');
     if (storedToken) {
         accessToken = storedToken;
         isAuthorized = true;
-        if (calendarAuth) {
-            calendarAuth.classList.add('hidden');
-        }
+        updateCalendarAuthStatus('✓ Calendar integration active. All booking events are automatically created in Ayushsutariya1310@gmail.com calendar.', 'success');
         initializeGapiClient();
-    } else if (calendarAuth) {
-        calendarAuth.classList.remove('hidden');
+    } else {
+        updateCalendarAuthStatus('One-time setup required: Click "Authorize Google Calendar" and sign in with Ayushsutariya1310@gmail.com. After this, all bookings will automatically create events in your calendar.', 'info');
+    }
+}
+
+function updateCalendarAuthStatus(message, type) {
+    if (calendarAuthStatus) {
+        calendarAuthStatus.textContent = message;
+        calendarAuthStatus.className = `status-message ${type}`;
     }
 }
 
@@ -657,22 +660,48 @@ function checkCalendarAuth() {
 
 function handleAuthorizeClick() {
     if (CALENDAR_CONFIG.CLIENT_ID === 'YOUR_CLIENT_ID' || !CALENDAR_CONFIG.CLIENT_ID) {
-        showStatus('Google Calendar API not configured. Please set up OAuth credentials.', 'error');
+        updateCalendarAuthStatus('Google Calendar API not configured. Please set up OAuth credentials.', 'error');
         return;
     }
 
     if (!tokenClient) {
-        showStatus('Google Calendar not initialized. Please refresh the page.', 'error');
+        updateCalendarAuthStatus('Google Calendar not initialized. Please refresh the page.', 'error');
         return;
     }
 
-    // Request access token
+    updateCalendarAuthStatus('Opening Google sign-in... Please sign in with Ayushsutariya1310@gmail.com to grant calendar access (one-time only).', 'info');
+    
+    // Request access token - this will open Google's consent screen
     tokenClient.requestAccessToken({ prompt: 'consent' });
 }
 
 async function createCalendarEvent(eventData) {
-    if (!isAuthorized) {
+    if (!isAuthorized || !accessToken) {
         throw new Error('Not authorized');
+    }
+
+    // Ensure gapi client is initialized
+    if (!gapi.client || !gapi.client.calendar) {
+        await new Promise((resolve, reject) => {
+            if (typeof gapi === 'undefined') {
+                reject(new Error('Google API not loaded'));
+                return;
+            }
+            gapi.load('client', () => {
+                gapi.client.init({
+                    apiKey: CALENDAR_CONFIG.API_KEY,
+                    discoveryDocs: CALENDAR_CONFIG.DISCOVERY_DOCS
+                }).then(() => {
+                    gapi.client.setToken({ access_token: accessToken });
+                    resolve();
+                }).catch(err => {
+                    reject(new Error('Failed to initialize gapi client: ' + err));
+                });
+            });
+        });
+    } else {
+        // Update token if needed
+        gapi.client.setToken({ access_token: accessToken });
     }
 
     const startDateTime = new Date(eventData.start);
@@ -694,12 +723,27 @@ async function createCalendarEvent(eventData) {
         ]
     };
 
-    const response = await gapi.client.calendar.events.insert({
-        calendarId: 'primary',
-        resource: event
-    });
+    try {
+        // Create event in the instructor's primary calendar
+        const response = await gapi.client.calendar.events.insert({
+            calendarId: 'primary', // This will be the calendar of whoever authorized (instructor)
+            resource: event
+        });
 
-    return response.result.id;
+        console.log('Calendar event created in instructor calendar:', response.result.id);
+        return response.result.id;
+    } catch (error) {
+        console.error('Calendar event creation error:', error);
+        // If token expired, clear it and request re-authorization
+        if (error.status === 401) {
+            accessToken = null;
+            isAuthorized = false;
+            localStorage.removeItem('google_access_token');
+            updateCalendarAuthStatus('Authorization expired. Please authorize again in the instructor panel.', 'error');
+            throw new Error('Authorization expired. Please authorize again.');
+        }
+        throw error;
+    }
 }
 
 // Utility Functions

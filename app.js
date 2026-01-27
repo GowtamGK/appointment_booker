@@ -86,6 +86,7 @@ const sessionTypeSelect = document.getElementById('sessionType');
 const bookingDateInput = document.getElementById('bookingDate');
 const timeSlotSelect = document.getElementById('timeSlot');
 const timeSlotGroup = document.getElementById('timeSlotGroup');
+const noSlotsMessage = document.getElementById('noSlotsMessage');
 const totalPriceSpan = document.getElementById('totalPrice');
 const bookingStatus = document.getElementById('bookingStatus');
 const calendarAuth = document.getElementById('calendarAuth');
@@ -137,6 +138,10 @@ function setupEventListeners() {
             // Already authenticated, toggle panels
             instructorPanel.classList.toggle('hidden');
             bookingPanel.classList.toggle('hidden');
+            // Refresh calendar status when showing instructor panel
+            if (!instructorPanel.classList.contains('hidden')) {
+                refreshCalendarAuthStatus();
+            }
         } else {
             // Show password modal
             showPasswordModal();
@@ -255,6 +260,9 @@ function updateTimeSlots() {
     
     timeSlotSelect.innerHTML = '<option value="">Select a time slot</option>';
     timeSlotGroup.style.display = 'none';
+    if (noSlotsMessage) {
+        noSlotsMessage.style.display = 'none';
+    }
     
     if (!sessionType || !selectedDate) {
         return;
@@ -267,6 +275,9 @@ function updateTimeSlots() {
 
     if (filteredSlots.length === 0) {
         timeSlotGroup.style.display = 'none';
+        if (noSlotsMessage) {
+            noSlotsMessage.style.display = 'block';
+        }
         return;
     }
 
@@ -283,6 +294,9 @@ function updateTimeSlots() {
     });
 
     timeSlotGroup.style.display = 'block';
+    if (noSlotsMessage) {
+        noSlotsMessage.style.display = 'none';
+    }
 }
 
 // Handle Instructor Date Change - Generate time slots
@@ -538,6 +552,9 @@ async function handleBookingSubmit(e) {
         }
         bookingForm.reset();
         timeSlotGroup.style.display = 'none';
+        if (noSlotsMessage) {
+            noSlotsMessage.style.display = 'none';
+        }
         updatePriceDisplay();
         loadAvailableSlots();
 
@@ -636,21 +653,36 @@ function initializeGoogleCalendar() {
     });
 
     // Check if we have a stored token (persists across browser sessions)
+    // Don't update status on page load - wait until instructor panel is shown
     const storedToken = localStorage.getItem('google_access_token');
     if (storedToken) {
         accessToken = storedToken;
         isAuthorized = true;
-        updateCalendarAuthStatus('✓ Calendar integration active. All booking events are automatically created in Ayushsutariya1310@gmail.com calendar.', 'success');
         initializeGapiClient();
-    } else {
-        updateCalendarAuthStatus('One-time setup required: Click "Authorize Google Calendar" and sign in with Ayushsutariya1310@gmail.com. After this, all bookings will automatically create events in your calendar.', 'info');
     }
+    // Status will be updated when instructor panel is shown via refreshCalendarAuthStatus()
 }
 
 function updateCalendarAuthStatus(message, type) {
     if (calendarAuthStatus) {
         calendarAuthStatus.textContent = message;
         calendarAuthStatus.className = `status-message ${type}`;
+    }
+}
+
+// Refresh calendar auth status when instructor panel is shown
+function refreshCalendarAuthStatus() {
+    if (!calendarAuthStatus || !instructorPanel || instructorPanel.classList.contains('hidden')) {
+        return; // Don't update if panel is hidden
+    }
+    
+    const storedToken = localStorage.getItem('google_access_token');
+    if (storedToken) {
+        accessToken = storedToken;
+        isAuthorized = true;
+        updateCalendarAuthStatus('✓ Calendar integration active. All booking events are automatically created in Ayushsutariya1310@gmail.com calendar.', 'success');
+    } else {
+        updateCalendarAuthStatus('One-time setup required: Click "Authorize Google Calendar" and sign in with Ayushsutariya1310@gmail.com. After this, all bookings will automatically create events in your calendar.', 'info');
     }
 }
 
@@ -839,6 +871,9 @@ function handlePasswordSubmit() {
         
         // Load slots
         loadAvailableSlots();
+        
+        // Refresh calendar auth status
+        refreshCalendarAuthStatus();
     } else {
         // Wrong password
         passwordError.textContent = 'Incorrect password. Access denied.';

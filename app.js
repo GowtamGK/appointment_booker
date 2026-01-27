@@ -25,8 +25,8 @@ const EMAILJS_CONFIG = {
 
 // Google Calendar API Configuration
 const CALENDAR_CONFIG = {
-    CLIENT_ID: 'YOUR_CLIENT_ID', // Replace with your Google OAuth Client ID
-    API_KEY: 'YOUR_API_KEY', // Replace with your Google API Key
+    CLIENT_ID: '113324119776-h2jd7a2evfdfe7jjin1jlf1sfs4flk28.apps.googleusercontent.com', // ✅ Your OAuth Client ID
+    API_KEY: 'AIzaSyD7zRXAqp521duUJNxQvvujo7CESK82z9M', // ✅ Your API Key
     DISCOVERY_DOCS: ['https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest'],
     SCOPES: 'https://www.googleapis.com/auth/calendar.events'
 };

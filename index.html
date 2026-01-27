@@ -46,13 +46,11 @@
             </div>
             <h2>Instructor Panel - Manage Available Slots</h2>
             
-            <!-- Google Calendar Authorization (Instructor Only) -->
+            <!-- Google Calendar Integration Status -->
             <div id="calendarAuth" class="form-group" style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
                 <h3 style="margin-top: 0;">Google Calendar Integration</h3>
-                <p style="margin-bottom: 10px;"><strong>Why authorization is needed:</strong> Google requires permission to create calendar events. This is a one-time setup.</p>
                 <p style="margin-bottom: 10px;"><strong>How it works:</strong> All calendar events are automatically created in <strong>Ayushsutariya1310@gmail.com</strong> when customers book appointments.</p>
-                <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;"><strong>Setup (one-time only):</strong> Click the button below and sign in with <strong>Ayushsutariya1310@gmail.com</strong>. After this one-time authorization, all future bookings will automatically create events in your calendar - no further action needed!</p>
-                <button id="authorizeBtn" class="btn-primary">One-Time Setup: Authorize Google Calendar</button>
+                <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;"><strong>No authorization needed!</strong> Calendar events are created automatically using a service account. See <code>SETUP_SERVICE_ACCOUNT.md</code> for setup instructions.</p>
                 <div id="calendarAuthStatus" class="status-message" style="margin-top: 10px;"></div>
             </div>
             

@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/create-calendar-event.js": {
+      "runtime": "nodejs18.x"
+    }
+  }
+}

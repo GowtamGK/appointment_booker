@@ -1,0 +1,14 @@
+{
+  "name": "motorcycle-training-booking",
+  "version": "1.0.0",
+  "description": "Motorcycle training booking system with Google Calendar integration",
+  "scripts": {
+    "dev": "vercel dev"
+  },
+  "dependencies": {
+    "googleapis": "^126.0.0"
+  },
+  "devDependencies": {
+    "vercel": "^34.0.0"
+  }
+}

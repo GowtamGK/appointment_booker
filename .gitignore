@@ -13,3 +13,9 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Service account keys (NEVER commit these!)
+service-account-key.json
+*.json.key
+**/service-account*.json
+.vercel

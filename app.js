@@ -24,9 +24,12 @@ const EMAILJS_CONFIG = {
 };
 
 // Google Calendar API Configuration
+// Using serverless function approach - no OAuth needed!
 const CALENDAR_CONFIG = {
-    CLIENT_ID: '113324119776-h2jd7a2evfdfe7jjin1jlf1sfs4flk28.apps.googleusercontent.com', // ✅ Your OAuth Client ID
-    API_KEY: 'AIzaSyD7zRXAqp521duUJNxQvvujo7CESK82z9M', // ✅ Your API Key
+    API_ENDPOINT: 'https://your-app.vercel.app/api/create-calendar-event', // ⚠️ UPDATE THIS with your Vercel deployment URL
+    // Legacy OAuth config (kept for fallback, but not needed with service account)
+    CLIENT_ID: '113324119776-h2jd7a2evfdfe7jjin1jlf1sfs4flk28.apps.googleusercontent.com',
+    API_KEY: 'AIzaSyD7zRXAqp521duUJNxQvvujo7CESK82z9M',
     DISCOVERY_DOCS: ['https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest'],
     SCOPES: 'https://www.googleapis.com/auth/calendar.events'
 };
@@ -496,29 +499,20 @@ async function handleBookingSubmit(e) {
         const duration = selectedSlot.duration;
         const totalPrice = CONFIG.PRICING[sessionType] * duration;
 
-        // Create calendar event
+        // Create calendar event using serverless function (no OAuth needed!)
         let calendarEventId = null;
-        if (isAuthorized) {
-            try {
-                console.log('Attempting to create calendar event...');
-                calendarEventId = await createCalendarEvent({
-                    title: `${CONFIG.SESSION_NAMES[sessionType]} - ${customerName}`,
-                    start: new Date(selectedSlot.date + 'T' + selectedSlot.time),
-                    duration: duration,
-                    description: `Customer: ${customerName}\nEmail: ${customerEmail}\nPhone: ${customerPhone}\nPrice: $${totalPrice} CAD\n${notes ? 'Notes: ' + notes : ''}`
-                });
-                console.log('Calendar event created successfully:', calendarEventId);
-            } catch (error) {
-                console.error('Calendar event creation failed:', error);
-                console.error('Error details:', {
-                    message: error.message,
-                    error: error.error,
-                    code: error.code
-                });
-                // Continue even if calendar fails
-            }
-        } else {
-            console.log('Google Calendar not authorized, skipping calendar event creation');
+        try {
+            console.log('Attempting to create calendar event...');
+            calendarEventId = await createCalendarEventViaAPI({
+                title: `${CONFIG.SESSION_NAMES[sessionType]} - ${customerName}`,
+                start: new Date(selectedSlot.date + 'T' + selectedSlot.time),
+                duration: duration,
+                description: `Customer: ${customerName}\nEmail: ${customerEmail}\nPhone: ${customerPhone}\nPrice: $${totalPrice} CAD\n${notes ? 'Notes: ' + notes : ''}`
+            });
+            console.log('Calendar event created successfully:', calendarEventId);
+        } catch (error) {
+            console.error('Calendar event creation failed:', error);
+            // Continue even if calendar fails - booking is still valid
         }
 
         // Send email
@@ -676,13 +670,11 @@ function refreshCalendarAuthStatus() {
         return; // Don't update if panel is hidden
     }
     
-    const storedToken = localStorage.getItem('google_access_token');
-    if (storedToken) {
-        accessToken = storedToken;
-        isAuthorized = true;
-        updateCalendarAuthStatus('✓ Calendar integration active. All booking events are automatically created in Ayushsutariya1310@gmail.com calendar.', 'success');
+    // With service account approach, no authorization needed!
+    if (CALENDAR_CONFIG.API_ENDPOINT && !CALENDAR_CONFIG.API_ENDPOINT.includes('your-app')) {
+        updateCalendarAuthStatus('✓ Calendar integration active! All booking events are automatically created in Ayushsutariya1310@gmail.com calendar. No authorization needed.', 'success');
     } else {
-        updateCalendarAuthStatus('One-time setup required: Click "Authorize Google Calendar" and sign in with Ayushsutariya1310@gmail.com. After this, all bookings will automatically create events in your calendar.', 'info');
+        updateCalendarAuthStatus('⚠️ Calendar API endpoint not configured. Please set up the serverless function and update CALENDAR_CONFIG.API_ENDPOINT in app.js', 'error');
     }
 }
 
@@ -729,6 +721,35 @@ function handleAuthorizeClick() {
     tokenClient.requestAccessToken({ prompt: 'consent' });
 }
 
+// NEW: Create calendar event via serverless API (no OAuth needed!)
+async function createCalendarEventViaAPI(eventData) {
+    if (!CALENDAR_CONFIG.API_ENDPOINT || CALENDAR_CONFIG.API_ENDPOINT.includes('your-app')) {
+        throw new Error('Calendar API endpoint not configured. Please set CALENDAR_CONFIG.API_ENDPOINT in app.js');
+    }
+
+    const response = await fetch(CALENDAR_CONFIG.API_ENDPOINT, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            title: eventData.title,
+            start: eventData.start.toISOString(),
+            duration: eventData.duration,
+            description: eventData.description
+        })
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `HTTP ${response.status}: Failed to create calendar event`);
+    }
+
+    const result = await response.json();
+    return result.eventId;
+}
+
+// Legacy OAuth-based function (kept for reference, not used anymore)
 async function createCalendarEvent(eventData) {
     if (!isAuthorized || !accessToken) {
         throw new Error('Not authorized');
@@ -780,7 +801,7 @@ async function createCalendarEvent(eventData) {
     try {
         // Create event in the instructor's primary calendar
         const response = await gapi.client.calendar.events.insert({
-            calendarId: 'primary', // This will be the calendar of whoever authorized (instructor)
+            calendarId: 'primary',
             resource: event
         });
 
@@ -788,7 +809,6 @@ async function createCalendarEvent(eventData) {
         return response.result.id;
     } catch (error) {
         console.error('Calendar event creation error:', error);
-        // If token expired, clear it and request re-authorization
         if (error.status === 401) {
             accessToken = null;
             isAuthorized = false;

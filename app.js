@@ -35,21 +35,39 @@ const CALENDAR_CONFIG = {
 function initializeEmailJS() {
     if (EMAILJS_CONFIG.PUBLIC_KEY !== 'YOUR_PUBLIC_KEY' && EMAILJS_CONFIG.PUBLIC_KEY) {
         if (typeof emailjs !== 'undefined') {
-            emailjs.init(EMAILJS_CONFIG.PUBLIC_KEY);
-            console.log('EmailJS initialized successfully');
+            try {
+                // EmailJS v4 uses object format for init
+                emailjs.init({
+                    publicKey: EMAILJS_CONFIG.PUBLIC_KEY
+                });
+                console.log('EmailJS v4 initialized successfully with public key:', EMAILJS_CONFIG.PUBLIC_KEY.substring(0, 10) + '...');
+            } catch (error) {
+                console.error('EmailJS initialization error:', error);
+            }
         } else {
-            console.warn('EmailJS SDK not loaded yet');
+            console.warn('EmailJS SDK not loaded yet, retrying...');
+            setTimeout(initializeEmailJS, 500);
         }
+    } else {
+        console.warn('EmailJS Public Key not configured');
     }
 }
 
-// Try to initialize immediately, or wait for script to load
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initializeEmailJS);
-} else {
-    // If DOM is already loaded, wait a bit for scripts to load
-    setTimeout(initializeEmailJS, 100);
+// Wait for EmailJS script to load - try multiple times
+let emailjsRetryCount = 0;
+function waitForEmailJS() {
+    if (typeof emailjs !== 'undefined') {
+        initializeEmailJS();
+    } else if (emailjsRetryCount < 10) {
+        emailjsRetryCount++;
+        setTimeout(waitForEmailJS, 300);
+    } else {
+        console.error('EmailJS SDK failed to load after multiple attempts');
+    }
 }
+
+// Start waiting for EmailJS to load
+waitForEmailJS();
 
 // State
 let availableSlots = JSON.parse(localStorage.getItem('availableSlots')) || [];
@@ -92,12 +110,16 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     loadAvailableSlots();
     updatePriceDisplay();
-    checkCalendarAuth();
     
     // Set minimum date to today
     const today = new Date().toISOString().split('T')[0];
     slotDateInput.min = today;
     bookingDateInput.min = today;
+    
+    // Wait a bit for Google API to load before checking auth
+    setTimeout(() => {
+        checkCalendarAuth();
+    }, 500);
 });
 
 // Event Listeners
@@ -419,20 +441,30 @@ async function handleBookingSubmit(e) {
         let calendarEventId = null;
         if (isAuthorized) {
             try {
+                console.log('Attempting to create calendar event...');
                 calendarEventId = await createCalendarEvent({
                     title: `${CONFIG.SESSION_NAMES[sessionType]} - ${customerName}`,
                     start: new Date(selectedSlot.date + 'T' + selectedSlot.time),
                     duration: duration,
                     description: `Customer: ${customerName}\nEmail: ${customerEmail}\nPhone: ${customerPhone}\nPrice: $${totalPrice} CAD\n${notes ? 'Notes: ' + notes : ''}`
                 });
+                console.log('Calendar event created successfully:', calendarEventId);
             } catch (error) {
                 console.error('Calendar event creation failed:', error);
+                console.error('Error details:', {
+                    message: error.message,
+                    error: error.error,
+                    code: error.code
+                });
                 // Continue even if calendar fails
             }
+        } else {
+            console.log('Google Calendar not authorized, skipping calendar event creation');
         }
 
         // Send email
         try {
+            console.log('Attempting to send email...');
             await sendEmail({
                 customerName,
                 customerEmail,
@@ -443,10 +475,12 @@ async function handleBookingSubmit(e) {
                 duration: duration,
                 totalPrice: totalPrice,
                 notes: notes || 'None',
-                calendarEventId: calendarEventId
+                calendarEventId: calendarEventId || 'Not created'
             });
+            console.log('Email sent successfully');
         } catch (error) {
             console.error('Email sending failed:', error);
+            console.error('Full error object:', error);
             showStatus('Booking created but email failed to send. Please contact the instructor directly.', 'error');
             submitBtn.disabled = false;
             submitBtn.textContent = 'Book Appointment';
@@ -494,11 +528,14 @@ async function sendEmail(bookingData) {
     };
 
     try {
-        // EmailJS v4 - publicKey is already initialized, but can also be passed in options
+        // EmailJS v4 - pass publicKey in options
         const response = await emailjs.send(
             EMAILJS_CONFIG.SERVICE_ID,
             EMAILJS_CONFIG.TEMPLATE_ID,
-            templateParams
+            templateParams,
+            {
+                publicKey: EMAILJS_CONFIG.PUBLIC_KEY
+            }
         );
         console.log('Email sent successfully:', response);
         return response;
@@ -509,6 +546,7 @@ async function sendEmail(bookingData) {
             message: error.message,
             serviceId: EMAILJS_CONFIG.SERVICE_ID,
             templateId: EMAILJS_CONFIG.TEMPLATE_ID,
+            publicKey: EMAILJS_CONFIG.PUBLIC_KEY,
             params: templateParams
         });
         const errorMessage = error.text || error.message || 'Unknown error';
@@ -519,33 +557,43 @@ async function sendEmail(bookingData) {
 // Google Calendar Functions
 function checkCalendarAuth() {
     if (CALENDAR_CONFIG.CLIENT_ID === 'YOUR_CLIENT_ID' || !CALENDAR_CONFIG.CLIENT_ID) {
-        calendarAuth.classList.remove('hidden');
+        if (calendarAuth) {
+            calendarAuth.classList.remove('hidden');
+        }
         return;
     }
 
     if (typeof gapi === 'undefined') {
-        console.warn('Google API not loaded yet');
+        console.warn('Google API not loaded yet, will retry...');
+        // Retry after a delay
+        setTimeout(checkCalendarAuth, 1000);
         return;
     }
 
-    gapi.load('client:auth2', () => {
-        gapi.client.init({
-            apiKey: CALENDAR_CONFIG.API_KEY,
-            clientId: CALENDAR_CONFIG.CLIENT_ID,
-            discoveryDocs: CALENDAR_CONFIG.DISCOVERY_DOCS,
-            scope: CALENDAR_CONFIG.SCOPES
-        }).then(() => {
-            const authInstance = gapi.auth2.getAuthInstance();
-            isAuthorized = authInstance.isSignedIn.get();
-            
-            if (!isAuthorized) {
-                calendarAuth.classList.remove('hidden');
-            }
-        }).catch(error => {
-            console.error('Google Calendar initialization error:', error);
-            // Don't show error to user, calendar is optional
+    try {
+        gapi.load('client:auth2', () => {
+            gapi.client.init({
+                apiKey: CALENDAR_CONFIG.API_KEY,
+                clientId: CALENDAR_CONFIG.CLIENT_ID,
+                discoveryDocs: CALENDAR_CONFIG.DISCOVERY_DOCS,
+                scope: CALENDAR_CONFIG.SCOPES
+            }).then(() => {
+                const authInstance = gapi.auth2.getAuthInstance();
+                isAuthorized = authInstance.isSignedIn.get();
+                
+                if (!isAuthorized && calendarAuth) {
+                    calendarAuth.classList.remove('hidden');
+                } else if (isAuthorized) {
+                    console.log('Google Calendar already authorized');
+                }
+            }).catch(error => {
+                console.error('Google Calendar initialization error:', error);
+                // Don't show error to user, calendar is optional
+            });
         });
-    });
+    } catch (error) {
+        console.error('Error loading Google API:', error);
+    }
 }
 
 function handleAuthorizeClick() {

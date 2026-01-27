@@ -26,7 +26,7 @@ const EMAILJS_CONFIG = {
 // Google Calendar API Configuration
 // Using serverless function approach - no OAuth needed!
 const CALENDAR_CONFIG = {
-    API_ENDPOINT: 'https://your-app.vercel.app/api/create-calendar-event', // ⚠️ UPDATE THIS with your Vercel deployment URL
+    API_ENDPOINT: 'https://appointment-booker-seven.vercel.app/api/create-calendar-event', // ✅ Your Vercel deployment URL
     // Legacy OAuth config (kept for fallback, but not needed with service account)
     CLIENT_ID: '113324119776-h2jd7a2evfdfe7jjin1jlf1sfs4flk28.apps.googleusercontent.com',
     API_KEY: 'AIzaSyD7zRXAqp521duUJNxQvvujo7CESK82z9M',

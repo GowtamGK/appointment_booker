@@ -1,7 +1,9 @@
 // Configuration
 const CONFIG = {
     INSTRUCTOR_EMAIL: 'Ayushsutariya1310@gmail.com',
-    INSTRUCTOR_PASSWORD: 'instructor2024', // Change this to your desired password
+    // Instructor password is checked on server (Vercel env INSTRUCTOR_PASSWORD). Fallback for local dev only.
+    INSTRUCTOR_PASSWORD: 'instructor2024',
+    API_BASE: 'https://appointment-booker-seven.vercel.app', // Vercel deployment URL (no trailing slash); used for slots/bookings/instructor APIs
     PRICING: {
         training: 60,
         mst: 75,
@@ -72,12 +74,27 @@ function waitForEmailJS() {
 // Start waiting for EmailJS to load
 waitForEmailJS();
 
-// State
-let availableSlots = JSON.parse(localStorage.getItem('availableSlots')) || [];
+// State (slots come from API when CONFIG.API_BASE is set; no localStorage for slots)
+let availableSlots = [];
 let isAuthorized = false;
 let isInstructorAuthenticated = sessionStorage.getItem('instructorAuthenticated') === 'true';
+let instructorSessionPassword = ''; // Used only when CONFIG.API_BASE is set, for add/remove slot API calls
 let tokenClient = null;
 let accessToken = null;
+
+// Fetch slots from backend (replaces localStorage). Uses CONFIG.API_BASE.
+async function fetchSlotsFromServer() {
+    if (!CONFIG.API_BASE) return;
+    try {
+        const res = await fetch(CONFIG.API_BASE + '/api/slots');
+        if (!res.ok) throw new Error('Failed to load slots');
+        const data = await res.json();
+        availableSlots = Array.isArray(data) ? data : [];
+    } catch (e) {
+        console.error('fetchSlotsFromServer', e);
+        availableSlots = [];
+    }
+}
 
 // DOM Elements
 const toggleInstructorBtn = document.getElementById('toggleInstructor');
@@ -116,21 +133,22 @@ const backToHomeBtn = document.getElementById('backToHome');
 const successModal = document.getElementById('successModal');
 const closeSuccessModal = document.getElementById('closeSuccessModal');
 
-// Initialize
+// Initialize (slots loaded from API when CONFIG.API_BASE is set)
 document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
-    loadAvailableSlots();
-    updatePriceDisplay();
-    
-    // Set minimum date to today
+    if (CONFIG.API_BASE) {
+        fetchSlotsFromServer().then(() => {
+            loadAvailableSlots();
+            updatePriceDisplay();
+        });
+    } else {
+        loadAvailableSlots();
+        updatePriceDisplay();
+    }
     const today = new Date().toISOString().split('T')[0];
-    slotDateInput.min = today;
-    bookingDateInput.min = today;
-    
-    // Wait a bit for Google Identity Services to load before checking auth
-    setTimeout(() => {
-        initializeGoogleCalendar();
-    }, 500);
+    if (slotDateInput) slotDateInput.min = today;
+    if (bookingDateInput) bookingDateInput.min = today;
+    setTimeout(() => { initializeGoogleCalendar(); }, 500);
 });
 
 // Event Listeners
@@ -138,12 +156,15 @@ function setupEventListeners() {
     // Instructor Panel Toggle - Show password modal first
     toggleInstructorBtn.addEventListener('click', () => {
         if (isInstructorAuthenticated) {
-            // Already authenticated, toggle panels
             instructorPanel.classList.toggle('hidden');
             bookingPanel.classList.toggle('hidden');
-            // Refresh calendar status when showing instructor panel
             if (!instructorPanel.classList.contains('hidden')) {
                 refreshCalendarAuthStatus();
+                if (CONFIG.API_BASE) {
+                    fetchSlotsFromServer().then(() => loadAvailableSlots());
+                } else {
+                    loadAvailableSlots();
+                }
             }
         } else {
             // Show password modal
@@ -380,46 +401,58 @@ function handleInstructorDateChange() {
     loadAvailableSlots();
 }
 
-// Handle Add Slots - Create slots for selected times
-function handleAddSlots() {
+// Handle Add Slots - Create slots for selected times (API or local)
+async function handleAddSlots() {
     const date = slotDateInput.value;
-    
     if (!date) {
         showInstructorStatus('Please select a date', 'error');
         return;
     }
-
     const selectedCheckboxes = timeSlotsGrid.querySelectorAll('input[type="checkbox"]:checked:not(:disabled)');
-    
     if (selectedCheckboxes.length === 0) {
         showInstructorStatus('Please select at least one time slot', 'error');
         return;
     }
+    const times = Array.from(selectedCheckboxes).map(cb => cb.value);
 
-    // Remove existing UNBOOKED slots for this SPECIFIC date only
-    availableSlots = availableSlots.filter(slot => {
-        // Keep the slot if it's not for this date, OR if it's booked, OR if it's for this date but booked
-        return !(slot.date === date && !slot.booked);
-    });
+    if (CONFIG.API_BASE) {
+        try {
+            const res = await fetch(CONFIG.API_BASE + '/api/slots', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    instructorPassword: instructorSessionPassword,
+                    date: date,
+                    times: times
+                })
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                showInstructorStatus(err.error || 'Failed to add slots', 'error');
+                return;
+            }
+            await fetchSlotsFromServer();
+            handleInstructorDateChange();
+            showInstructorStatus(`${times.length} time slot(s) added successfully for ${formatDate(date)}!`, 'success');
+        } catch (e) {
+            showInstructorStatus('Could not add slots. Try again.', 'error');
+        }
+        return;
+    }
 
-    // Add new slots for selected times - ensure date is correctly set
-    selectedCheckboxes.forEach((checkbox, index) => {
-        const time = checkbox.value;
-        const slot = {
-            id: `${date}_${time}_${Date.now()}_${index}`, // Unique ID with timestamp and index
-            date: date, // Explicitly set the date
+    availableSlots = availableSlots.filter(slot => !(slot.date === date && !slot.booked));
+    times.forEach((time, index) => {
+        availableSlots.push({
+            id: `${date}_${time}_${Date.now()}_${index}`,
+            date: date,
             time: time,
-            duration: 1, // Always 1 hour
+            duration: 1,
             booked: false
-        };
-        availableSlots.push(slot);
+        });
     });
-
     saveAvailableSlots();
-    // Refresh the grid and slots list
     handleInstructorDateChange();
-    
-    showInstructorStatus(`${selectedCheckboxes.length} time slot(s) added successfully for ${formatDate(date)}!`, 'success');
+    showInstructorStatus(`${times.length} time slot(s) added successfully for ${formatDate(date)}!`, 'success');
 }
 
 // Show status in instructor panel
@@ -474,29 +507,55 @@ function loadAvailableSlots() {
     });
 }
 
-// Remove Slot
-function removeSlot(slotId) {
+// Remove Slot (API or local)
+async function removeSlot(slotId) {
     const slotToRemove = availableSlots.find(slot => slot.id === slotId);
+
+    if (CONFIG.API_BASE) {
+        try {
+            const res = await fetch(CONFIG.API_BASE + '/api/slots', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    instructorPassword: instructorSessionPassword,
+                    slotId: slotId
+                })
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                showInstructorStatus(err.error || 'Failed to remove slot', 'error');
+                return;
+            }
+            await fetchSlotsFromServer();
+            loadAvailableSlots();
+            updateTimeSlots();
+            if (slotToRemove && slotDateInput && slotDateInput.value === slotToRemove.date) {
+                handleInstructorDateChange();
+            }
+        } catch (e) {
+            showInstructorStatus('Could not remove slot. Try again.', 'error');
+        }
+        return;
+    }
+
     availableSlots = availableSlots.filter(slot => slot.id !== slotId);
     saveAvailableSlots();
     loadAvailableSlots();
     updateTimeSlots();
-    
-    // Refresh instructor view if the date is currently selected
-    if (slotToRemove && slotDateInput.value === slotToRemove.date) {
+    if (slotToRemove && slotDateInput && slotDateInput.value === slotToRemove.date) {
         handleInstructorDateChange();
     }
 }
 
-// Save Available Slots
+// Save Available Slots (local only; when using API, slots are saved via POST/DELETE to backend)
 function saveAvailableSlots() {
+    if (CONFIG.API_BASE) return;
     localStorage.setItem('availableSlots', JSON.stringify(availableSlots));
 }
 
-// Handle Booking Submit
+// Handle Booking Submit (API or local)
 async function handleBookingSubmit(e) {
     e.preventDefault();
-    
     const sessionType = sessionTypeSelect.value;
     const slotId = timeSlotSelect.value;
     const customerName = document.getElementById('customerName').value;
@@ -508,47 +567,57 @@ async function handleBookingSubmit(e) {
         showStatus('Please fill in all required fields', 'error');
         return;
     }
-
     const selectedSlot = availableSlots.find(slot => slot.id === slotId);
     if (!selectedSlot || selectedSlot.booked) {
         showStatus('This slot is no longer available', 'error');
         return;
     }
-
-    // Disable submit button
+    const duration = selectedSlot.duration;
+    const totalPrice = CONFIG.PRICING[sessionType] * duration;
     const submitBtn = document.getElementById('submitBtn');
     submitBtn.disabled = true;
     submitBtn.textContent = 'Processing...';
 
     try {
-        // Mark slot as booked
-        selectedSlot.booked = true;
-        saveAvailableSlots();
+        if (CONFIG.API_BASE) {
+            const res = await fetch(CONFIG.API_BASE + '/api/bookings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    slotId,
+                    customerName,
+                    customerEmail,
+                    customerPhone: customerPhone || '',
+                    sessionType: CONFIG.SESSION_NAMES[sessionType],
+                    totalPrice,
+                    notes: notes || ''
+                })
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                showStatus(err.error || 'Booking failed. Slot may be taken.', 'error');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Book Appointment';
+                return;
+            }
+        } else {
+            selectedSlot.booked = true;
+            saveAvailableSlots();
+        }
         updateTimeSlots();
 
-        // Calculate total price
-        const duration = selectedSlot.duration;
-        const totalPrice = CONFIG.PRICING[sessionType] * duration;
-
-        // Create calendar event using serverless function (no OAuth needed!)
         let calendarEventId = null;
         try {
-            console.log('Attempting to create calendar event...');
             calendarEventId = await createCalendarEventViaAPI({
                 title: `${CONFIG.SESSION_NAMES[sessionType]} - ${customerName}`,
                 start: new Date(selectedSlot.date + 'T' + selectedSlot.time),
                 duration: duration,
                 description: `Customer: ${customerName}\nEmail: ${customerEmail}\nPhone: ${customerPhone}\nPrice: $${totalPrice} CAD\n${notes ? 'Notes: ' + notes : ''}`
             });
-            console.log('Calendar event created successfully:', calendarEventId);
-        } catch (error) {
-            console.error('Calendar event creation failed:', error);
-            // Continue even if calendar fails - booking is still valid
+        } catch (err) {
+            console.error('Calendar event creation failed:', err);
         }
-
-        // Send email
         try {
-            console.log('Attempting to send email...');
             await sendEmail({
                 customerName,
                 customerEmail,
@@ -561,31 +630,27 @@ async function handleBookingSubmit(e) {
                 notes: notes || 'None',
                 calendarEventId: calendarEventId || 'Not created'
             });
-            console.log('Email sent successfully');
-        } catch (error) {
-            console.error('Email sending failed:', error);
-            console.error('Full error object:', error);
-            showStatus('Booking created but email failed to send. Please contact the instructor directly.', 'error');
+        } catch (err) {
+            console.error('Email sending failed:', err);
+            showStatus('Booking saved but email failed. Contact the instructor.', 'error');
             submitBtn.disabled = false;
             submitBtn.textContent = 'Book Appointment';
             return;
         }
-
-        // Success - Show celebration modal
-        if (successModal) {
-            successModal.classList.remove('hidden');
-        }
+        if (successModal) successModal.classList.remove('hidden');
         bookingForm.reset();
         timeSlotGroup.style.display = 'none';
-        if (noSlotsMessage) {
-            noSlotsMessage.style.display = 'none';
-        }
+        if (noSlotsMessage) noSlotsMessage.style.display = 'none';
         updatePriceDisplay();
-        loadAvailableSlots();
-
+        if (CONFIG.API_BASE) {
+            await fetchSlotsFromServer();
+            loadAvailableSlots();
+        } else {
+            loadAvailableSlots();
+        }
     } catch (error) {
         console.error('Booking error:', error);
-        showStatus('An error occurred. Please try again or contact the instructor directly.', 'error');
+        showStatus('An error occurred. Please try again or contact the instructor.', 'error');
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Book Appointment';
@@ -927,32 +992,51 @@ function hidePasswordModal() {
     passwordError.className = 'status-message';
 }
 
-function handlePasswordSubmit() {
+async function handlePasswordSubmit() {
     const enteredPassword = instructorPasswordInput.value;
-    
     if (!enteredPassword) {
         passwordError.textContent = 'Please enter a password';
         passwordError.className = 'status-message error';
         return;
     }
-
+    if (CONFIG.API_BASE) {
+        try {
+            const res = await fetch(CONFIG.API_BASE + '/api/instructor/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: enteredPassword })
+            });
+            if (!res.ok) {
+                passwordError.textContent = 'Incorrect password. Access denied.';
+                passwordError.className = 'status-message error';
+                instructorPasswordInput.value = '';
+                instructorPasswordInput.focus();
+                return;
+            }
+            isInstructorAuthenticated = true;
+            instructorSessionPassword = enteredPassword;
+            sessionStorage.setItem('instructorAuthenticated', 'true');
+            hidePasswordModal();
+            instructorPanel.classList.remove('hidden');
+            bookingPanel.classList.add('hidden');
+            await fetchSlotsFromServer();
+            loadAvailableSlots();
+            refreshCalendarAuthStatus();
+        } catch (e) {
+            passwordError.textContent = 'Could not verify. Try again.';
+            passwordError.className = 'status-message error';
+        }
+        return;
+    }
     if (enteredPassword === CONFIG.INSTRUCTOR_PASSWORD) {
-        // Correct password
         isInstructorAuthenticated = true;
         sessionStorage.setItem('instructorAuthenticated', 'true');
         hidePasswordModal();
-        
-        // Show instructor panel
         instructorPanel.classList.remove('hidden');
         bookingPanel.classList.add('hidden');
-        
-        // Load slots
         loadAvailableSlots();
-        
-        // Refresh calendar auth status
         refreshCalendarAuthStatus();
     } else {
-        // Wrong password
         passwordError.textContent = 'Incorrect password. Access denied.';
         passwordError.className = 'status-message error';
         instructorPasswordInput.value = '';
